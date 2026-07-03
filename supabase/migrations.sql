@@ -28,6 +28,7 @@ CREATE TABLE transactions (
     direction direction_enum NOT NULL,
     custom_owner TEXT NOT NULL,          -- 掛帳同仁姓名 (所有異動別均強制必填)
     current_dept TEXT NOT NULL,          -- 掛帳單位 (所有異動別均強制必填)
+    source_dept TEXT,                    -- 轉出單位 (僅轉撥、內部轉調適用)
     reason TEXT NOT NULL,                -- 需求原因/備註 (所有異動別均強制必填)
     created_by UUID REFERENCES profiles(id),
     updated_by UUID REFERENCES profiles(id),
