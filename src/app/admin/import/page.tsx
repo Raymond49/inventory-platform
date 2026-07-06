@@ -92,13 +92,31 @@ function jsonBlock(tag: string, value: unknown[]) {
   return `$${safeTag}$${text}$${safeTag}$`;
 }
 
+function stableUuidSql(prefix: string, valueSql: string) {
+  const source = `${sqlString(prefix)} || coalesce(${valueSql}, '')`;
+  return `(
+    substr(md5(${source}), 1, 8) || '-' ||
+    substr(md5(${source}), 9, 4) || '-' ||
+    substr(md5(${source}), 13, 4) || '-' ||
+    substr(md5(${source}), 17, 4) || '-' ||
+    substr(md5(${source}), 21, 12)
+  )::uuid`;
+}
+
 function buildImportSql(payload: LocalExportPayload, adminEmail: string) {
   const email = sqlString(adminEmail.trim());
+  const txUuid = stableUuidSql('tx:', 'x.id');
+  const itemUuid = stableUuidSql('item:', 'x.id');
+  const itemTxUuid = stableUuidSql('tx:', 'x.transaction_id');
+  const assetUuid = stableUuidSql('asset:', 'x.id');
+  const assetItemUuid = stableUuidSql('item:', 'x.current_item_id');
+  const historyItemUuid = stableUuidSql('item:', "log_entry.value ->> 'item_id'");
 
   return `-- NextDrive inventory platform local test data import
 -- Source: ${payload.sourceOrigin}
 -- Exported at: ${payload.exportedAt}
 -- Run this in Supabase SQL Editor on the production project.
+-- Local test IDs are mapped to stable production UUIDs during import.
 
 begin;
 
@@ -132,7 +150,7 @@ insert into public.transactions (
   created_at
 )
 select
-  x.id::uuid,
+  ${txUuid},
   x.tx_no,
   x.tx_type::tx_type_enum,
   x.direction::direction_enum,
@@ -169,8 +187,8 @@ insert into public.transaction_items (
   created_at
 )
 select
-  x.id::uuid,
-  x.transaction_id::uuid,
+  ${itemUuid},
+  ${itemTxUuid},
   coalesce(x.category, ''),
   coalesce(x.part_no, ''),
   greatest(coalesce(x.quantity, 1), 1),
@@ -211,15 +229,29 @@ insert into public.asset_pids (
   created_at
 )
 select
-  x.id::uuid,
+  ${assetUuid},
   coalesce(x.pid, 'N/A'),
-  nullif(x.current_item_id, '')::uuid,
+  case when nullif(x.current_item_id, '') is null then null else ${assetItemUuid} end,
   nullif(x.current_status, '')::asset_status_enum,
   null,
   nullif(x.custom_owner, ''),
   nullif(x.current_dept, ''),
   nullif(x.current_warehouse, ''),
-  coalesce(x.history_logs, '[]'::jsonb),
+  (
+    select coalesce(jsonb_agg(
+      case
+        when nullif(log_entry.value ->> 'item_id', '') is null then log_entry.value
+        else jsonb_set(log_entry.value, '{item_id}', to_jsonb((${historyItemUuid})::text), true)
+      end
+      order by log_entry.ordinality
+    ), '[]'::jsonb)
+    from jsonb_array_elements(
+      case
+        when x.history_logs is not null and jsonb_typeof(x.history_logs) = 'array' then x.history_logs
+        else '[]'::jsonb
+      end
+    ) with ordinality as log_entry(value, ordinality)
+  ),
   nullif(x.notes, ''),
   coalesce(nullif(x.created_at, '')::timestamptz, now())
 from jsonb_to_recordset(${jsonBlock('asset_pids_json', payload.assetPids)}::jsonb) as x(
