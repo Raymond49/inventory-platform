@@ -19,6 +19,35 @@ CREATE TABLE profiles (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+-- 新 Google 使用者首次登入時，自動建立 Viewer profile。
+-- Admin / Editor 權限仍由管理者後續在 profiles 表調整。
+CREATE OR REPLACE FUNCTION public.handle_new_auth_user_profile()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.email ILIKE '%@nextdrive.io' THEN
+    INSERT INTO public.profiles (id, email, name, department, role)
+    VALUES (
+      NEW.id,
+      NEW.email,
+      COALESCE(
+        NEW.raw_user_meta_data ->> 'full_name',
+        NEW.raw_user_meta_data ->> 'name',
+        split_part(NEW.email, '@', 1)
+      ),
+      '未設定',
+      'Viewer'
+    )
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE TRIGGER on_auth_user_created_create_profile
+AFTER INSERT ON auth.users
+FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user_profile();
+
 -- 3. 建立 transactions 表格 (庫存異動單據主表)
 -- 只保留單據屬性與掛帳同仁資訊，不含物料明細與對帳狀態
 CREATE TABLE transactions (
