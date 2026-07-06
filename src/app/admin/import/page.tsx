@@ -128,6 +128,7 @@ begin
 end $$;
 
 alter table public.asset_pids disable trigger trigger_asset_status_and_history;
+alter table public.asset_pids disable trigger trigger_update_item_reconciliation;
 
 delete from public.asset_pids;
 delete from public.transaction_items;
@@ -267,6 +268,7 @@ from jsonb_to_recordset(${jsonBlock('asset_pids_json', payload.assetPids)}::json
   created_at text
 );
 
+alter table public.asset_pids enable trigger trigger_update_item_reconciliation;
 alter table public.asset_pids enable trigger trigger_asset_status_and_history;
 
 notify pgrst, 'reload schema';
