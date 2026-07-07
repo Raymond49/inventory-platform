@@ -36,7 +36,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ExcelJS from 'exceljs';
 
-type SearchType = 'pid' | 'dept' | 'owner' | 'part_no' | 'tx_no' | 'adjust_no' | 'multi';
+type SearchType = 'pid' | 'dept' | 'owner' | 'part_no' | 'tx_no' | 'multi';
+type LedgerAssetView = AssetPid & {
+  category?: string;
+  part_no?: string;
+  tx_no?: string;
+  adjust_no?: string;
+};
 type LedgerAuditIssue = {
   txNo: string;
   txType: string;
@@ -55,7 +61,6 @@ type LedgerOptionRow = {
   dept: string;
   owner: string;
   txNo: string;
-  adjustNo: string;
   partNo: string;
 };
 
@@ -79,7 +84,10 @@ function LifecyclePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  const queryType = (searchParams.get('type') as SearchType) || 'pid';
+  const rawQueryType = searchParams.get('type');
+  const queryType = (['pid', 'dept', 'owner', 'part_no', 'tx_no', 'multi'].includes(rawQueryType || '')
+    ? rawQueryType
+    : 'pid') as SearchType;
   const queryVal = searchParams.get('val') || '';
 
   const [searchType, setSearchType] = useState<SearchType>(queryType);
@@ -96,7 +104,6 @@ function LifecyclePageContent() {
   const [ownerOptions, setOwnerOptions] = useState<string[]>([]);
   const [partNoOptions, setPartNoOptions] = useState<string[]>([]);
   const [txNoOptions, setTxNoOptions] = useState<string[]>([]);
-  const [adjustNoOptions, setAdjustNoOptions] = useState<string[]>([]);
   const [ledgerOptionRows, setLedgerOptionRows] = useState<LedgerOptionRow[]>([]);
   
   // 統計數據狀態
@@ -106,13 +113,13 @@ function LifecyclePageContent() {
   const [correctionResult, setCorrectionResult] = useState<{ correctedCount: number; remainingCount: number; message?: string } | null>(null);
 
   // 搜尋結果狀態
-  const [assetInfo, setAssetInfo] = useState<AssetPid | null>(null); // 用於 PID 精確匹配
-  const [assetList, setAssetList] = useState<(AssetPid & { category?: string; part_no?: string; tx_no?: string })[]>([]);       // 用於單位或料號查詢
+  const [assetInfo, setAssetInfo] = useState<LedgerAssetView | null>(null); // 用於 PID 精確匹配
+  const [assetList, setAssetList] = useState<LedgerAssetView[]>([]);       // 用於單位或料號查詢
   const [history, setHistory] = useState<HistoryLog[]>([]);
   
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [editingAsset, setEditingAsset] = useState<(AssetPid & { category?: string; part_no?: string; tx_no?: string }) | null>(null);
+  const [editingAsset, setEditingAsset] = useState<LedgerAssetView | null>(null);
   const [editOwner, setEditOwner] = useState('');
   const [editDept, setEditDept] = useState('');
   const [savingOwner, setSavingOwner] = useState(false);
@@ -161,20 +168,17 @@ function LifecyclePageContent() {
         .map(asset => {
           const linkedItem = allItems.find(item => String(item.id) === String(asset.current_item_id));
           const owner = asset.custom_owner || linkedItem?.tx.custom_owner;
-          const adjustNo = linkedItem?.adjust_no || '';
           if (!linkedItem?.tx.tx_no || !linkedItem.part_no || !asset.current_dept || !owner) return null;
           return {
             dept: asset.current_dept,
             owner,
             txNo: linkedItem.tx.tx_no,
-            adjustNo,
             partNo: linkedItem.part_no,
           };
         })
         .filter((row): row is LedgerOptionRow => Boolean(row));
       setLedgerOptionRows(optionRows);
       setOwnerOptions(Array.from(new Set(optionRows.map(row => row.owner))).sort());
-      setAdjustNoOptions(Array.from(new Set(optionRows.map(row => row.adjustNo).filter(Boolean))).sort());
 
       const qaAuditIssues = allItems
         .filter(item =>
@@ -321,6 +325,10 @@ function LifecyclePageContent() {
           const linkedItem = getLinkedItem(exactMatch);
           const enhancedMatch = {
             ...exactMatch,
+            category: linkedItem?.category,
+            part_no: linkedItem?.part_no,
+            tx_no: linkedItem?.tx.tx_no,
+            adjust_no: linkedItem?.adjust_no,
             current_warehouse: exactMatch.current_warehouse || exactMatch.current_dept || linkedItem?.tx?.current_dept || UNASSIGNED_LABEL,
             current_dept: exactMatch.current_dept || linkedItem?.tx?.current_dept || UNASSIGNED_LABEL,
             custom_owner: getEffectiveOwner(exactMatch)
@@ -366,14 +374,6 @@ function LifecyclePageContent() {
           });
         }
 
-        const adjustVal = type === 'adjust_no' ? val : 'ALL_ADJUST_NOS';
-        if (adjustVal !== 'ALL_ADJUST_NOS') {
-          filteredPids = filteredPids.filter(obj => {
-            const linkedItem = getLinkedItem(obj);
-            return linkedItem?.adjust_no === adjustVal;
-          });
-        }
-
         // 3. 處理料號過濾
         const partVal = type === 'multi' ? p : (type === 'part_no' ? val : 'ALL_PARTS');
         if (partVal !== 'ALL_PARTS') {
@@ -390,6 +390,7 @@ function LifecyclePageContent() {
             category: linkedItem?.category,
             part_no: linkedItem?.part_no,
             tx_no: linkedItem?.tx.tx_no,
+            adjust_no: linkedItem?.adjust_no,
             current_warehouse: obj.current_warehouse || obj.current_dept || linkedItem?.tx?.current_dept || UNASSIGNED_LABEL,
             current_dept: obj.current_dept || linkedItem?.tx?.current_dept || UNASSIGNED_LABEL,
             custom_owner: getEffectiveOwner(obj)
@@ -441,13 +442,12 @@ function LifecyclePageContent() {
     else if (newType === 'owner') setSearchVal(ownerOptions[0] || 'ALL_OWNERS');
     else if (newType === 'part_no') setSearchVal(partNoOptions[0] || 'ALL_PARTS');
     else if (newType === 'tx_no') setSearchVal(txNoOptions[0] || 'ALL_TX_NOS');
-    else if (newType === 'adjust_no') setSearchVal(adjustNoOptions[0] || 'ALL_ADJUST_NOS');
     else if (newType === 'pid') setSearchVal('');
     else setSearchVal('MULTI_MODE');
   };
 
   // 💡 改為接受整個 asset 物件，PID 為 N/A 時改用申請單號查詢以避免混淆
-  const jumpToAsset = async (asset: AssetPid & { category?: string; part_no?: string; tx_no?: string }) => {
+  const jumpToAsset = async (asset: LedgerAssetView) => {
     if (asset.pid === 'N/A') {
       // 優先用已知的 tx_no，若無則透過 current_item_id 反查
       let txNo = asset.tx_no;
@@ -470,7 +470,7 @@ function LifecyclePageContent() {
     }
   };
 
-  const openOwnerEditor = (asset: AssetPid & { category?: string; part_no?: string; tx_no?: string }) => {
+  const openOwnerEditor = (asset: LedgerAssetView) => {
     setEditingAsset(asset);
     setEditOwner(asset.custom_owner || '');
     setEditDept(asset.current_dept || '');
@@ -525,6 +525,7 @@ function LifecyclePageContent() {
         { header: '資產狀態', key: 'status', width: 18 },
         { header: '掛帳單位', key: 'dept', width: 22 },
         { header: '關聯申請單號', key: 'tx_no', width: 25 },
+        { header: '存貨調整單號', key: 'adjust_no', width: 25 },
         { header: '產品別', key: 'category', width: 18 },
         { header: '產品料號', key: 'part_no', width: 25 },
         { header: '掛帳同仁', key: 'owner', width: 18 },
@@ -540,7 +541,7 @@ function LifecyclePageContent() {
       });
       assetList.forEach((asset, idx) => {
         const row = worksheet.addRow([
-          asset.pid, getAssetStatusLabel(asset.current_status), asset.current_dept || UNASSIGNED_LABEL, asset.tx_no || 'N/A', asset.category || 'N/A',
+          asset.pid, getAssetStatusLabel(asset.current_status), asset.current_dept || UNASSIGNED_LABEL, asset.tx_no || 'N/A', asset.adjust_no || 'N/A', asset.category || 'N/A',
           asset.part_no || 'N/A', asset.custom_owner || UNASSIGNED_LABEL,
           asset.created_at.slice(0, 19).replace('T', ' ').replace(/-/g, '/')
         ]);
@@ -694,7 +695,6 @@ function LifecyclePageContent() {
             <Button variant={searchType === 'dept' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('dept')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'dept' ? 'bg-amber-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><MapPin size={12} />掛帳單位查詢</Button>
             <Button variant={searchType === 'owner' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('owner')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'owner' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><User size={12} />掛帳人員查詢</Button>
             <Button variant={searchType === 'tx_no' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('tx_no')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'tx_no' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><FileText size={12} />申請單號查詢</Button>
-            <Button variant={searchType === 'adjust_no' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('adjust_no')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'adjust_no' ? 'bg-cyan-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><Calendar size={12} />存貨調整單號查詢</Button>
             <Button variant={searchType === 'part_no' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('part_no')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'part_no' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><Package size={12} />產品料號查詢</Button>
             <div className="h-4 w-[1px] bg-slate-300 mx-1" />
             <Button variant={searchType === 'multi' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('multi')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'multi' ? 'bg-rose-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><Layers size={12} />複合條件過濾</Button>
@@ -754,20 +754,19 @@ function LifecyclePageContent() {
                 <div className="relative flex-1">
                   <Select value={searchVal} onValueChange={(v) => setSearchVal(v || '')}>
                     <SelectTrigger className="bg-white border-slate-300 text-slate-800 h-[52px] pl-10 relative">
-                      {searchType === 'dept' ? <MapPin className="absolute left-3 top-4 h-4 w-4 text-amber-500" /> : searchType === 'owner' ? <User className="absolute left-3 top-4 h-4 w-4 text-violet-500" /> : searchType === 'tx_no' ? <FileText className="absolute left-3 top-4 h-4 w-4 text-indigo-500" /> : searchType === 'adjust_no' ? <Calendar className="absolute left-3 top-4 h-4 w-4 text-cyan-500" /> : <Package className="absolute left-3 top-4 h-4 w-4 text-emerald-500" />}
+                      {searchType === 'dept' ? <MapPin className="absolute left-3 top-4 h-4 w-4 text-amber-500" /> : searchType === 'owner' ? <User className="absolute left-3 top-4 h-4 w-4 text-violet-500" /> : searchType === 'tx_no' ? <FileText className="absolute left-3 top-4 h-4 w-4 text-indigo-500" /> : <Package className="absolute left-3 top-4 h-4 w-4 text-emerald-500" />}
                       <SelectValue placeholder="請選擇查詢條件" />
                     </SelectTrigger>
                     <SelectContent className="bg-white border-slate-200 text-slate-800">
                       {searchType === 'dept' && <SelectItem value="ALL_DEPTS" className="text-sky-600 font-bold">[All] 全部單位</SelectItem>}
                       {searchType === 'owner' && <SelectItem value="ALL_OWNERS" className="text-sky-600 font-bold">[All] 全部人員</SelectItem>}
-                      {searchType === 'adjust_no' && <SelectItem value="ALL_ADJUST_NOS" className="text-sky-600 font-bold">[All] 全部調整單號</SelectItem>}
-                      {searchType === 'dept' ? deptOptions.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>) : searchType === 'owner' ? ownerOptions.map(owner => <SelectItem key={owner} value={owner}>{owner}</SelectItem>) : searchType === 'tx_no' ? txNoOptions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>) : searchType === 'adjust_no' ? adjustNoOptions.map(no => <SelectItem key={no} value={no}>{no}</SelectItem>) : partNoOptions.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                      {searchType === 'dept' ? deptOptions.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>) : searchType === 'owner' ? ownerOptions.map(owner => <SelectItem key={owner} value={owner}>{owner}</SelectItem>) : searchType === 'tx_no' ? txNoOptions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>) : partNoOptions.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
               )}
               <div className="flex gap-2">
-                <Button type="submit" disabled={searching} className={`px-8 py-6 font-bold text-white ${searchType === 'multi' ? 'bg-rose-600 hover:bg-rose-500' : searchType === 'pid' ? 'bg-sky-600 hover:bg-sky-500' : searchType === 'dept' ? 'bg-amber-500 hover:bg-amber-400' : searchType === 'owner' ? 'bg-violet-600 hover:bg-violet-500' : searchType === 'tx_no' ? 'bg-indigo-600 hover:bg-indigo-500' : searchType === 'adjust_no' ? 'bg-cyan-600 hover:bg-cyan-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}><Search size={18} className="mr-2" />{searching ? '搜尋中...' : '執行查詢'}</Button>
+                <Button type="submit" disabled={searching} className={`px-8 py-6 font-bold text-white ${searchType === 'multi' ? 'bg-rose-600 hover:bg-rose-500' : searchType === 'pid' ? 'bg-sky-600 hover:bg-sky-500' : searchType === 'dept' ? 'bg-amber-500 hover:bg-amber-400' : searchType === 'owner' ? 'bg-violet-600 hover:bg-violet-500' : searchType === 'tx_no' ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}><Search size={18} className="mr-2" />{searching ? '搜尋中...' : '執行查詢'}</Button>
                 {hasSearched && <Button type="button" variant="outline" onClick={() => { setHasSearched(false); setSearchVal(''); setSelectedDept('ALL_DEPTS'); setSelectedOwner('ALL_OWNERS'); setSelectedTxNo('ALL_TX_NOS'); setSelectedPartNo('ALL_PARTS'); router.push('/lifecycle'); }} className="px-4 py-6 border-slate-300 text-slate-500 hover:bg-slate-50">重置</Button>}
               </div>
             </div>
@@ -788,6 +787,7 @@ function LifecyclePageContent() {
                     <div><span className="text-slate-500 text-xs block mb-1">掛帳單位</span><span className="text-sky-600 font-mono font-bold flex items-center gap-1"><MapPin size={12} />{assetInfo.current_dept || UNASSIGNED_LABEL}</span></div>
                   </div>
                   <div><span className="text-slate-500 text-xs block mb-1">掛帳同仁</span><span className="text-slate-700 font-semibold flex items-center gap-1.5"><User size={14} />{assetInfo.custom_owner || UNASSIGNED_LABEL}</span></div>
+                  <div><span className="text-slate-500 text-xs block mb-1">存貨調整單號</span><span className="text-slate-700 font-mono font-semibold">{assetInfo.adjust_no || 'N/A'}</span></div>
                   <Button
                     type="button"
                     variant="outline"
@@ -844,6 +844,7 @@ function LifecyclePageContent() {
                         <TableHead className="text-slate-600">狀態</TableHead>
                         <TableHead className="text-slate-600">掛帳單位</TableHead>
                         <TableHead className="text-slate-600">單號</TableHead>
+                        <TableHead className="text-slate-600">存貨調整單號</TableHead>
                         <TableHead className="text-slate-600">產品 / 料號</TableHead>
                         <TableHead className="text-slate-600">掛帳同仁</TableHead>
                         <TableHead className="text-center">查</TableHead>
@@ -856,6 +857,7 @@ function LifecyclePageContent() {
                           <TableCell><span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusLabelColor(asset.current_status)}`}>{getAssetStatusLabel(asset.current_status)}</span></TableCell>
                           <TableCell className="font-mono text-xs text-amber-600">{asset.current_dept || UNASSIGNED_LABEL}</TableCell>
                           <TableCell className="font-mono text-xs text-slate-600">{asset.tx_no || 'N/A'}</TableCell>
+                          <TableCell className="font-mono text-xs text-slate-600">{asset.adjust_no || 'N/A'}</TableCell>
                           <TableCell><span className="block text-[10px] text-slate-500">{asset.category}</span><span className="text-slate-600 font-mono text-xs">{asset.part_no}</span></TableCell>
                           <TableCell><span className="block text-xs font-medium text-slate-800">{asset.custom_owner || UNASSIGNED_LABEL}</span></TableCell>
                           <TableCell className="text-center">
@@ -921,6 +923,10 @@ function LifecyclePageContent() {
               <div>
                 <span className="block text-slate-500">單號</span>
                 <span className="font-mono font-semibold text-slate-800">{editingAsset?.tx_no || 'N/A'}</span>
+              </div>
+              <div className="col-span-2">
+                <span className="block text-slate-500">存貨調整單號</span>
+                <span className="font-mono font-semibold text-slate-800">{editingAsset?.adjust_no || 'N/A'}</span>
               </div>
               <div className="col-span-2">
                 <span className="block text-slate-500">產品料號</span>
