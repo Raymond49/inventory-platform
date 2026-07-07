@@ -114,7 +114,7 @@ export default function ReconciliationPage() {
     
     // 💡 新增邏輯：若為「轉撥」且產品別為特定類型（配件、原材、其他產品），自動帶入 N/A
     const isNonMachineType = ['配件', '原材', '其他產品'].includes(item.category);
-    const shouldAutoFillNa = PID_REQUIRED_TX_TYPES.includes(item.tx.tx_type) && isNonMachineType;
+    const shouldAutoFillNa = ledgerAction === 'CREATE_LOAN_LEDGER' && isNonMachineType;
 
     const shouldUseNaForClearing =
       ledgerAction === 'CLEAR_LOAN_LEDGER' &&
@@ -256,9 +256,11 @@ export default function ReconciliationPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredItems.map((item) => {
+            const ledgerAction = resolveLedgerActionForItem(item.tx.tx_type, item, assetPids, allItems);
             const savedPids = getSavedPids(item);
-            const currentLinked = getLinkedPidCount(item);
-            const missing = item.quantity - currentLinked;
+            const needsPid = ledgerAction !== 'NORMAL_RECORD_ONLY';
+            const currentLinked = needsPid ? getLinkedPidCount(item) : 0;
+            const missing = needsPid ? item.quantity - currentLinked : 0;
 
             return (
               <Card key={item.id} className="border-amber-200 bg-white shadow-sm flex flex-col hover:border-amber-400 transition-all">
@@ -288,8 +290,14 @@ export default function ReconciliationPage() {
                     <AlertCircle size={15} className="shrink-0 mt-0.5" />
                     <div>
                       <span className="font-bold">物料待補明細：</span>
-                      應補數量 <span className="font-mono font-bold">{item.quantity}</span>，目前已暫存 <span className="font-mono font-bold">{currentLinked}</span>，尚缺 <span className="font-mono font-bold text-rose-600">{missing}</span> 個 PID。
-                      {currentLinked > 0 && (
+                      {needsPid ? (
+                        <>
+                          應補數量 <span className="font-mono font-bold">{item.quantity}</span>，目前已暫存 <span className="font-mono font-bold">{currentLinked}</span>，尚缺 <span className="font-mono font-bold text-rose-600">{missing}</span> 個 PID。
+                        </>
+                      ) : (
+                        <>此筆只需補登實際異動日期與存貨調整單號，不會建立 PID 掛帳。</>
+                      )}
+                      {needsPid && currentLinked > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1">
                           {savedPids.filter(p => p.trim() !== '').map((p, pIdx) => (
                             <span key={`${p}-${pIdx}`} className="px-1.5 py-0.5 bg-amber-100 border border-amber-200 rounded text-[10px] font-mono text-amber-800">
