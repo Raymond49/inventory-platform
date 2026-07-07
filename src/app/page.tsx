@@ -67,6 +67,7 @@ export default function DashboardPage() {
   const [editOwner, setEditOwner] = useState('');
   const [editDept, setEditDept] = useState('');
   const [editPartNo, setEditPartNo] = useState('');
+  const [editQuantity, setEditQuantity] = useState('1');
   const [editActualDate, setEditActualDate] = useState('');
   const [updating, setUpdating] = useState(false);
 
@@ -184,6 +185,7 @@ export default function DashboardPage() {
     setEditOwner(item.tx.custom_owner);
     setEditDept(item.tx.current_dept);
     setEditPartNo(item.part_no);
+    setEditQuantity(String(item.quantity));
     setEditActualDate(item.actual_date || '');
     setIsEditDialogOpen(true);
   };
@@ -191,6 +193,13 @@ export default function DashboardPage() {
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem) return;
+
+    const nextQuantity = Number(editQuantity);
+    if (!Number.isInteger(nextQuantity) || nextQuantity < 1) {
+      toast.error('數量必須是 1 以上的整數');
+      return;
+    }
+
     setUpdating(true);
     try {
       const res = await transactionsApi.update(
@@ -205,6 +214,7 @@ export default function DashboardPage() {
         },
         { 
           part_no: editPartNo,
+          quantity: nextQuantity,
           actual_date: editActualDate 
         }
       );
@@ -769,6 +779,18 @@ export default function DashboardPage() {
             <div className="space-y-2">
               <Label className="text-xs text-slate-500">產品料號</Label>
               <Input value={editPartNo} onChange={(e) => setEditPartNo(e.target.value)} className="bg-white border-slate-300" required />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-slate-500">數量</Label>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                value={editQuantity}
+                onChange={(e) => setEditQuantity(e.target.value)}
+                className="bg-white border-slate-300"
+                required
+              />
             </div>
             <DialogFooter className="border-t border-slate-200 pt-4 mt-2">
               <Button type="button" variant="ghost" onClick={() => setIsEditDialogOpen(false)} className="text-slate-600 hover:bg-slate-100">取消</Button>
