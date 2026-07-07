@@ -359,19 +359,21 @@ export const transactionsApi = {
         }
       }
 
-      await supabase!
+      const { error: closeItemError } = await supabase!
         .from('transaction_items')
         .update({ reconciliation_status: '已結案' })
         .eq('id', itemId);
+      if (closeItemError) return { success: false, error: closeItemError.message };
 
       return { success: true, completed: true };
     }
 
     // 3. 先清除原本關聯此明細的 PID
-    await supabase!
+    const { error: unlinkError } = await supabase!
       .from('asset_pids')
       .update({ current_item_id: null })
       .eq('current_item_id', itemId);
+    if (unlinkError) return { success: false, error: unlinkError.message };
 
     // 4. 計算狀態機與履歷
     const shouldClearOwner = ['退料', '報廢', '請購', '銷售', '轉撥退回'].includes(tx.tx_type);
@@ -381,54 +383,65 @@ export const transactionsApi = {
 
     const logEntry = {
       tx_no: tx.tx_no,
+      item_id: itemId,
       adjust_no: savedAdjustNo,
       date: savedActualDate,
       action: tx.tx_type,
       owner: shouldClearOwner ? '' : tx.custom_owner,
       dept: shouldClearOwner ? '' : tx.current_dept,
-      notes: tx.reason,
+      notes: `轉倉至：${item.warehouse_id} | ${tx.reason}`,
     };
 
     // 5. 逐筆寫入 PID
     for (const pidVal of cleanPids) {
       if (pidVal === 'N/A') {
-        await supabase!.from('asset_pids').insert({
+        const { error: insertNaError } = await supabase!.from('asset_pids').insert({
           pid: 'N/A',
           current_item_id: itemId,
           current_status: newStatus,
           custom_owner: shouldClearOwner ? null : tx.custom_owner,
           current_dept: shouldClearOwner ? null : tx.current_dept,
+          current_warehouse: item.warehouse_id,
           history_logs: [logEntry],
           notes: tx.reason,
         });
+        if (insertNaError) return { success: false, error: insertNaError.message };
       } else {
-        const { data: existing } = await supabase!
+        const { data: existing, error: existingError } = await supabase!
           .from('asset_pids')
-          .select('history_logs')
+          .select('id, history_logs')
           .eq('pid', pidVal)
-          .single();
+          .maybeSingle();
+        if (existingError) return { success: false, error: existingError.message };
 
         let logs = [logEntry];
         if (existing && Array.isArray(existing.history_logs)) {
           logs = [...existing.history_logs, logEntry];
         }
 
-        await supabase!.from('asset_pids').upsert({
+        const payload = {
           pid: pidVal,
           current_item_id: itemId,
           current_status: newStatus,
           custom_owner: shouldClearOwner ? null : tx.custom_owner,
           current_dept: shouldClearOwner ? null : tx.current_dept,
+          current_warehouse: item.warehouse_id,
           history_logs: logs,
           notes: tx.reason,
-        }, { onConflict: 'pid' });
+        };
+
+        const { error: writePidError } = existing
+          ? await supabase!.from('asset_pids').update(payload).eq('id', existing.id)
+          : await supabase!.from('asset_pids').insert(payload);
+        if (writePidError) return { success: false, error: writePidError.message };
       }
     }
 
-    await supabase!
+    const { error: finalCloseError } = await supabase!
       .from('transaction_items')
       .update({ reconciliation_status: '已結案' })
       .eq('id', itemId);
+    if (finalCloseError) return { success: false, error: finalCloseError.message };
 
     return { success: true, completed: true };
   }
