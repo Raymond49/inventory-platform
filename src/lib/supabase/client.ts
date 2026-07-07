@@ -30,6 +30,14 @@ const getRevertStatus = (action: string): mockDb.AssetStatusType => {
   return '結案/在庫';
 };
 
+const chunkRows = <T,>(rows: T[], size = 500) => {
+  const chunks: T[][] = [];
+  for (let idx = 0; idx < rows.length; idx += size) {
+    chunks.push(rows.slice(idx, idx + size));
+  }
+  return chunks;
+};
+
 export const authApi = {
   async login(email: string, name: string): Promise<{ success: boolean; error?: string; data?: any; user?: any }> {
     if (!isRealSupabase) {
@@ -235,8 +243,8 @@ export const transactionsApi = {
 
     const { data: assetRows } = await supabase!.from('asset_pids').select('*');
     const { data: itemRows } = await supabase!.from('transaction_items').select('*');
-    const assets = assetRows || [];
-    const items = itemRows || [];
+    const assets = (assetRows || []) as mockDb.AssetPid[];
+    const items = (itemRows || []) as mockDb.TransactionItem[];
     const ledgerAction = resolveLedgerActionForItem(tx.tx_type, item, assets, items);
     const needsPid = ledgerAction !== 'NORMAL_RECORD_ONLY';
     const itemQuantity = Number(item.quantity) || 0;
@@ -284,19 +292,19 @@ export const transactionsApi = {
       const normalizeLedgerKey = (value: string | null | undefined) =>
         (value || '').replace(/\s+/g, '').toUpperCase();
 
-      const findLinkedItem = (asset: any) =>
-        items.find((row: any) => row.id === asset.current_item_id);
-      const isOpenLedger = (asset: any) =>
+      const findLinkedItem = (asset: mockDb.AssetPid) =>
+        items.find(row => row.id === asset.current_item_id);
+      const isOpenLedger = (asset: mockDb.AssetPid) =>
         asset.current_status !== '結案/在庫' && Boolean(asset.current_item_id);
-      const isSamePart = (asset: any) =>
+      const isSamePart = (asset: mockDb.AssetPid) =>
         normalizeLedgerKey(findLinkedItem(asset)?.part_no) === normalizeLedgerKey(item.part_no);
-      const isSameLedgerWarehouse = (asset: any) =>
+      const isSameLedgerWarehouse = (asset: mockDb.AssetPid) =>
         normalizeLedgerKey(asset.current_warehouse) === normalizeLedgerKey(item.warehouse_id) ||
         normalizeLedgerKey(asset.current_dept) === normalizeLedgerKey(item.warehouse_id);
-      const isSameLedgerOwner = (asset: any) =>
+      const isSameLedgerOwner = (asset: mockDb.AssetPid) =>
         normalizeLedgerKey(asset.custom_owner) === normalizeLedgerKey(tx.custom_owner);
 
-      const clearLogEntry = {
+      const clearLogEntry: mockDb.HistoryLog = {
         tx_no: tx.tx_no,
         item_id: itemId,
         adjust_no: savedAdjustNo,
@@ -307,15 +315,18 @@ export const transactionsApi = {
         notes: `掛帳除帳：${item.warehouse_id} | ${tx.reason}`,
       };
 
+      const pidClearPayloads: mockDb.AssetPid[] = [];
+
       for (const pidVal of nonNaPids) {
-        const target = assets.find((asset: any) => asset.pid.toUpperCase() === pidVal.toUpperCase());
+        const target = assets.find(asset => asset.pid.toUpperCase() === pidVal.toUpperCase());
         if (!target) return { success: false, error: `PID "${pidVal}" 尚未在平台列管，無法除帳` };
         if (!isOpenLedger(target)) return { success: false, error: `PID "${pidVal}" 目前不是掛帳中狀態，無法除帳` };
         if (!isSamePart(target)) return { success: false, error: `PID "${pidVal}" 的料號與本次申請料號不一致，無法除帳` };
         if (!isSameLedgerWarehouse(target)) return { success: false, error: `PID "${pidVal}" 的掛帳庫別與本次異動庫別不一致，無法除帳` };
 
         const logs = Array.isArray(target.history_logs) ? [...target.history_logs, clearLogEntry] : [clearLogEntry];
-        const { error } = await supabase!.from('asset_pids').update({
+        pidClearPayloads.push({
+          ...target,
           current_item_id: itemId,
           current_status: '結案/在庫',
           custom_owner: null,
@@ -323,13 +334,17 @@ export const transactionsApi = {
           current_warehouse: item.warehouse_id,
           history_logs: logs,
           notes: clearLogEntry.notes,
-        }).eq('id', target.id);
+        });
+      }
+
+      for (const chunk of chunkRows(pidClearPayloads)) {
+        const { error } = await supabase!.from('asset_pids').upsert(chunk, { onConflict: 'id' });
         if (error) return { success: false, error: error.message };
       }
 
       const naQtyToClear = cleanPids.filter(p => p === 'N/A').length;
       if (naQtyToClear > 0) {
-        const availableNaAssets = assets.filter((asset: any) =>
+        const availableNaAssets = assets.filter(asset =>
           asset.pid === 'N/A' &&
           isOpenLedger(asset) &&
           isSamePart(asset) &&
@@ -344,9 +359,10 @@ export const transactionsApi = {
           };
         }
 
-        for (const target of availableNaAssets.slice(0, naQtyToClear)) {
+        const naClearPayloads = availableNaAssets.slice(0, naQtyToClear).map(target => {
           const logs = Array.isArray(target.history_logs) ? [...target.history_logs, clearLogEntry] : [clearLogEntry];
-          const { error } = await supabase!.from('asset_pids').update({
+          return {
+            ...target,
             current_item_id: itemId,
             current_status: '結案/在庫',
             custom_owner: null,
@@ -354,7 +370,11 @@ export const transactionsApi = {
             current_warehouse: item.warehouse_id,
             history_logs: logs,
             notes: clearLogEntry.notes,
-          }).eq('id', target.id);
+          };
+        });
+
+        for (const chunk of chunkRows(naClearPayloads)) {
+          const { error } = await supabase!.from('asset_pids').upsert(chunk, { onConflict: 'id' });
           if (error) return { success: false, error: error.message };
         }
       }
@@ -392,22 +412,28 @@ export const transactionsApi = {
       notes: `轉倉至：${item.warehouse_id} | ${tx.reason}`,
     };
 
-    // 5. 逐筆寫入 PID
-    for (const pidVal of cleanPids) {
-      if (pidVal === 'N/A') {
-        const { error: insertNaError } = await supabase!.from('asset_pids').insert({
+    // 5. 寫入 PID。大量 N/A 以批次新增，避免大批量補登時逐筆等待資料庫回應。
+    const naCreateRows = cleanPids
+      .filter(pidVal => pidVal === 'N/A')
+      .map(() => ({
           pid: 'N/A',
           current_item_id: itemId,
           current_status: newStatus,
+          current_owner_id: null,
           custom_owner: shouldClearOwner ? null : tx.custom_owner,
           current_dept: shouldClearOwner ? null : tx.current_dept,
           current_warehouse: item.warehouse_id,
           history_logs: [logEntry],
           notes: tx.reason,
-        });
-        if (insertNaError) return { success: false, error: insertNaError.message };
-      } else {
-        const { data: existing, error: existingError } = await supabase!
+      }));
+
+    for (const chunk of chunkRows(naCreateRows)) {
+      const { error: insertNaError } = await supabase!.from('asset_pids').insert(chunk);
+      if (insertNaError) return { success: false, error: insertNaError.message };
+    }
+
+    for (const pidVal of cleanPids.filter(pidVal => pidVal !== 'N/A')) {
+      const { data: existing, error: existingError } = await supabase!
           .from('asset_pids')
           .select('id, history_logs')
           .eq('pid', pidVal)
@@ -434,7 +460,6 @@ export const transactionsApi = {
           ? await supabase!.from('asset_pids').update(payload).eq('id', existing.id)
           : await supabase!.from('asset_pids').insert(payload);
         if (writePidError) return { success: false, error: writePidError.message };
-      }
     }
 
     const { error: finalCloseError } = await supabase!
