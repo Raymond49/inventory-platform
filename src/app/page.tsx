@@ -132,6 +132,7 @@ export default function DashboardPage() {
       item.tx.tx_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.part_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.tx.tx_type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.adjust_no || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.warehouse_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.tx.custom_owner.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -555,7 +556,7 @@ export default function DashboardPage() {
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
               <Input
-                placeholder="搜尋單號、料號、同仁..."
+                placeholder="搜尋單號、調整單、料號、同仁..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9 bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 h-10"

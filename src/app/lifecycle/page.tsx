@@ -36,7 +36,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ExcelJS from 'exceljs';
 
-type SearchType = 'pid' | 'dept' | 'owner' | 'part_no' | 'tx_no' | 'multi';
+type SearchType = 'pid' | 'dept' | 'owner' | 'part_no' | 'tx_no' | 'adjust_no' | 'multi';
 type LedgerAuditIssue = {
   txNo: string;
   txType: string;
@@ -55,6 +55,7 @@ type LedgerOptionRow = {
   dept: string;
   owner: string;
   txNo: string;
+  adjustNo: string;
   partNo: string;
 };
 
@@ -95,6 +96,7 @@ function LifecyclePageContent() {
   const [ownerOptions, setOwnerOptions] = useState<string[]>([]);
   const [partNoOptions, setPartNoOptions] = useState<string[]>([]);
   const [txNoOptions, setTxNoOptions] = useState<string[]>([]);
+  const [adjustNoOptions, setAdjustNoOptions] = useState<string[]>([]);
   const [ledgerOptionRows, setLedgerOptionRows] = useState<LedgerOptionRow[]>([]);
   
   // 統計數據狀態
@@ -159,17 +161,20 @@ function LifecyclePageContent() {
         .map(asset => {
           const linkedItem = allItems.find(item => String(item.id) === String(asset.current_item_id));
           const owner = asset.custom_owner || linkedItem?.tx.custom_owner;
+          const adjustNo = linkedItem?.adjust_no || '';
           if (!linkedItem?.tx.tx_no || !linkedItem.part_no || !asset.current_dept || !owner) return null;
           return {
             dept: asset.current_dept,
             owner,
             txNo: linkedItem.tx.tx_no,
+            adjustNo,
             partNo: linkedItem.part_no,
           };
         })
         .filter((row): row is LedgerOptionRow => Boolean(row));
       setLedgerOptionRows(optionRows);
       setOwnerOptions(Array.from(new Set(optionRows.map(row => row.owner))).sort());
+      setAdjustNoOptions(Array.from(new Set(optionRows.map(row => row.adjustNo).filter(Boolean))).sort());
 
       const qaAuditIssues = allItems
         .filter(item =>
@@ -361,6 +366,14 @@ function LifecyclePageContent() {
           });
         }
 
+        const adjustVal = type === 'adjust_no' ? val : 'ALL_ADJUST_NOS';
+        if (adjustVal !== 'ALL_ADJUST_NOS') {
+          filteredPids = filteredPids.filter(obj => {
+            const linkedItem = getLinkedItem(obj);
+            return linkedItem?.adjust_no === adjustVal;
+          });
+        }
+
         // 3. 處理料號過濾
         const partVal = type === 'multi' ? p : (type === 'part_no' ? val : 'ALL_PARTS');
         if (partVal !== 'ALL_PARTS') {
@@ -428,6 +441,7 @@ function LifecyclePageContent() {
     else if (newType === 'owner') setSearchVal(ownerOptions[0] || 'ALL_OWNERS');
     else if (newType === 'part_no') setSearchVal(partNoOptions[0] || 'ALL_PARTS');
     else if (newType === 'tx_no') setSearchVal(txNoOptions[0] || 'ALL_TX_NOS');
+    else if (newType === 'adjust_no') setSearchVal(adjustNoOptions[0] || 'ALL_ADJUST_NOS');
     else if (newType === 'pid') setSearchVal('');
     else setSearchVal('MULTI_MODE');
   };
@@ -680,6 +694,7 @@ function LifecyclePageContent() {
             <Button variant={searchType === 'dept' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('dept')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'dept' ? 'bg-amber-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><MapPin size={12} />掛帳單位查詢</Button>
             <Button variant={searchType === 'owner' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('owner')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'owner' ? 'bg-violet-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><User size={12} />掛帳人員查詢</Button>
             <Button variant={searchType === 'tx_no' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('tx_no')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'tx_no' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><FileText size={12} />申請單號查詢</Button>
+            <Button variant={searchType === 'adjust_no' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('adjust_no')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'adjust_no' ? 'bg-cyan-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><Calendar size={12} />存貨調整單號查詢</Button>
             <Button variant={searchType === 'part_no' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('part_no')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'part_no' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><Package size={12} />產品料號查詢</Button>
             <div className="h-4 w-[1px] bg-slate-300 mx-1" />
             <Button variant={searchType === 'multi' ? 'default' : 'ghost'} size="sm" onClick={() => handleTypeChange('multi')} className={`rounded-full h-8 text-xs gap-1.5 ${searchType === 'multi' ? 'bg-rose-600 text-white' : 'text-slate-500 hover:bg-slate-50'}`}><Layers size={12} />複合條件過濾</Button>
@@ -739,19 +754,20 @@ function LifecyclePageContent() {
                 <div className="relative flex-1">
                   <Select value={searchVal} onValueChange={(v) => setSearchVal(v || '')}>
                     <SelectTrigger className="bg-white border-slate-300 text-slate-800 h-[52px] pl-10 relative">
-                      {searchType === 'dept' ? <MapPin className="absolute left-3 top-4 h-4 w-4 text-amber-500" /> : searchType === 'owner' ? <User className="absolute left-3 top-4 h-4 w-4 text-violet-500" /> : searchType === 'tx_no' ? <FileText className="absolute left-3 top-4 h-4 w-4 text-indigo-500" /> : <Package className="absolute left-3 top-4 h-4 w-4 text-emerald-500" />}
+                      {searchType === 'dept' ? <MapPin className="absolute left-3 top-4 h-4 w-4 text-amber-500" /> : searchType === 'owner' ? <User className="absolute left-3 top-4 h-4 w-4 text-violet-500" /> : searchType === 'tx_no' ? <FileText className="absolute left-3 top-4 h-4 w-4 text-indigo-500" /> : searchType === 'adjust_no' ? <Calendar className="absolute left-3 top-4 h-4 w-4 text-cyan-500" /> : <Package className="absolute left-3 top-4 h-4 w-4 text-emerald-500" />}
                       <SelectValue placeholder="請選擇查詢條件" />
                     </SelectTrigger>
                     <SelectContent className="bg-white border-slate-200 text-slate-800">
                       {searchType === 'dept' && <SelectItem value="ALL_DEPTS" className="text-sky-600 font-bold">[All] 全部單位</SelectItem>}
                       {searchType === 'owner' && <SelectItem value="ALL_OWNERS" className="text-sky-600 font-bold">[All] 全部人員</SelectItem>}
-                      {searchType === 'dept' ? deptOptions.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>) : searchType === 'owner' ? ownerOptions.map(owner => <SelectItem key={owner} value={owner}>{owner}</SelectItem>) : searchType === 'tx_no' ? txNoOptions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>) : partNoOptions.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                      {searchType === 'adjust_no' && <SelectItem value="ALL_ADJUST_NOS" className="text-sky-600 font-bold">[All] 全部調整單號</SelectItem>}
+                      {searchType === 'dept' ? deptOptions.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>) : searchType === 'owner' ? ownerOptions.map(owner => <SelectItem key={owner} value={owner}>{owner}</SelectItem>) : searchType === 'tx_no' ? txNoOptions.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>) : searchType === 'adjust_no' ? adjustNoOptions.map(no => <SelectItem key={no} value={no}>{no}</SelectItem>) : partNoOptions.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
               )}
               <div className="flex gap-2">
-                <Button type="submit" disabled={searching} className={`px-8 py-6 font-bold text-white ${searchType === 'multi' ? 'bg-rose-600 hover:bg-rose-500' : searchType === 'pid' ? 'bg-sky-600 hover:bg-sky-500' : searchType === 'dept' ? 'bg-amber-500 hover:bg-amber-400' : searchType === 'owner' ? 'bg-violet-600 hover:bg-violet-500' : searchType === 'tx_no' ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}><Search size={18} className="mr-2" />{searching ? '搜尋中...' : '執行查詢'}</Button>
+                <Button type="submit" disabled={searching} className={`px-8 py-6 font-bold text-white ${searchType === 'multi' ? 'bg-rose-600 hover:bg-rose-500' : searchType === 'pid' ? 'bg-sky-600 hover:bg-sky-500' : searchType === 'dept' ? 'bg-amber-500 hover:bg-amber-400' : searchType === 'owner' ? 'bg-violet-600 hover:bg-violet-500' : searchType === 'tx_no' ? 'bg-indigo-600 hover:bg-indigo-500' : searchType === 'adjust_no' ? 'bg-cyan-600 hover:bg-cyan-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}><Search size={18} className="mr-2" />{searching ? '搜尋中...' : '執行查詢'}</Button>
                 {hasSearched && <Button type="button" variant="outline" onClick={() => { setHasSearched(false); setSearchVal(''); setSelectedDept('ALL_DEPTS'); setSelectedOwner('ALL_OWNERS'); setSelectedTxNo('ALL_TX_NOS'); setSelectedPartNo('ALL_PARTS'); router.push('/lifecycle'); }} className="px-4 py-6 border-slate-300 text-slate-500 hover:bg-slate-50">重置</Button>}
               </div>
             </div>
