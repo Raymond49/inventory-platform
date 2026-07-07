@@ -107,8 +107,27 @@ export default function DashboardPage() {
   // 統計非 N/A 的機器 PID 總量
   const uniquePids = Array.from(new Set(assetPids.filter(p => p.pid !== 'N/A').map(p => p.pid))).length;
 
+  const getItemPidInfo = (item: DisplayItem) => {
+    const linkedPids = assetPids
+      .filter(p => p.current_item_id === item.id)
+      .map(p => p.pid)
+      .filter(pid => pid && pid.trim() !== '');
+    const savedPids = (item.pending_pids || [])
+      .map(pid => String(pid || '').trim())
+      .filter(pid => pid !== '');
+
+    if (linkedPids.length > 0) {
+      return { pids: linkedPids, source: 'ledger' as const };
+    }
+    if (savedPids.length > 0) {
+      return { pids: savedPids, source: 'pending' as const };
+    }
+    return { pids: [], source: 'none' as const };
+  };
+
   // 過濾搜尋結果 (結合關鍵字搜尋與下拉異動別篩選)
   const filteredItems = items.filter(item => {
+    const itemPidInfo = getItemPidInfo(item);
     const matchesKeyword = 
       item.tx.tx_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.part_no.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -116,7 +135,7 @@ export default function DashboardPage() {
       item.warehouse_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.tx.custom_owner.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      assetPids.filter(p => p.current_item_id === item.id).some(p => p.pid.toLowerCase().includes(searchQuery.toLowerCase()));
+      itemPidInfo.pids.some(pid => pid.toLowerCase().includes(searchQuery.toLowerCase()));
       
     const matchesTxType = selectedTxType === 'all' || item.tx.tx_type === selectedTxType;
     
@@ -281,7 +300,8 @@ export default function DashboardPage() {
 
       // 2. 填入資料
       exportItems.forEach((item, idx) => {
-        const itemPids = assetPids.filter(p => p.current_item_id === item.id).map(p => p.pid).join(', ');
+        const itemPidInfo = getItemPidInfo(item);
+        const itemPids = itemPidInfo.pids.join(', ');
         const row = worksheet.addRow([
           item.tx.tx_no,
           item.tx.tx_type,
@@ -593,12 +613,20 @@ export default function DashboardPage() {
                       <TableCell className="font-mono font-bold text-slate-800 text-right">{item.quantity}</TableCell>
                       <TableCell className="max-w-[120px]">
                         {(() => {
-                          const itemPids = assetPids.filter(p => p.current_item_id === item.id).map(p => p.pid);
-                          if (itemPids.length === 0) return <span className="text-slate-400 italic text-xs">無</span>;
+                          const itemPidInfo = getItemPidInfo(item);
+                          if (itemPidInfo.pids.length === 0) return <span className="text-slate-400 italic text-xs">無</span>;
                           return (
-                            <div className="flex flex-wrap gap-1">
-                              {itemPids.map((p, pIdx) => (
-                                <span key={`${p}-${pIdx}`} className="px-1.5 py-0.5 bg-slate-100 rounded border border-slate-200 text-[10px] font-mono text-slate-600">
+                            <div className="flex flex-wrap gap-1 max-w-[220px]">
+                              {itemPidInfo.pids.map((p, pIdx) => (
+                                <span
+                                  key={`${p}-${pIdx}`}
+                                  title={itemPidInfo.source === 'pending' ? '補登明細已暫存，尚未寫入掛帳清單' : '已寫入掛帳清單'}
+                                  className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${
+                                    itemPidInfo.source === 'pending'
+                                      ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                      : 'bg-slate-100 border-slate-200 text-slate-600'
+                                  }`}
+                                >
                                   {p}
                                 </span>
                               ))}
