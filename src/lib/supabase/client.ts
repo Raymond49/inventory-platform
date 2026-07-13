@@ -219,6 +219,40 @@ export const transactionsApi = {
     return { success: !error, error: error?.message };
   },
 
+  async deleteItem(itemId: string) {
+    if (!isRealSupabase) {
+      return mockDb.deleteTransactionItem(itemId);
+    }
+
+    const { data: item, error: itemFetchError } = await supabase!
+      .from('transaction_items')
+      .select('id, transaction_id')
+      .eq('id', itemId)
+      .single();
+    if (itemFetchError || !item) return { success: false, error: '找不到該筆物料明細' };
+
+    const { count: itemCount, error: countError } = await supabase!
+      .from('transaction_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('transaction_id', item.transaction_id);
+    if (countError) return { success: false, error: countError.message };
+    if ((itemCount || 0) <= 1) {
+      return { success: false, error: '此單據只剩一筆明細，請改用刪除整張單據。' };
+    }
+
+    const { count: linkedAssetCount, error: assetCountError } = await supabase!
+      .from('asset_pids')
+      .select('id', { count: 'exact', head: true })
+      .eq('current_item_id', itemId);
+    if (assetCountError) return { success: false, error: assetCountError.message };
+    if ((linkedAssetCount || 0) > 0) {
+      return { success: false, error: '此明細已有掛帳資料連結，請先確認掛帳資料後再刪除。' };
+    }
+
+    const { error } = await supabase!.from('transaction_items').delete().eq('id', itemId);
+    return { success: !error, error: error?.message };
+  },
+
   // 針對單一明細項目修補並結案
   async repair(
     itemId: string,

@@ -1414,3 +1414,29 @@ export function deleteTransaction(txId: string): { success: boolean; error?: str
 
   return { success: true };
 }
+
+export function deleteTransactionItem(itemId: string): { success: boolean; error?: string } {
+  if (typeof window === 'undefined') return { success: false };
+
+  const txItems = getTransactionItems();
+  const assetPids = getAssetPids();
+  const target = txItems.find(item => item.id === itemId);
+  if (!target) return { success: false, error: '找不到該筆物料明細' };
+
+  const sameTxItems = txItems.filter(item => item.transaction_id === target.transaction_id);
+  if (sameTxItems.length <= 1) {
+    return { success: false, error: '此單據只剩一筆明細，請改用刪除整張單據。' };
+  }
+
+  const linkedAssetCount = assetPids.filter(asset => asset.current_item_id === itemId).length;
+  if (linkedAssetCount > 0) {
+    return { success: false, error: '此明細已有掛帳資料連結，請先確認掛帳資料後再刪除。' };
+  }
+
+  localStorage.setItem(
+    STORAGE_KEYS.TRANSACTION_ITEMS,
+    JSON.stringify(txItems.filter(item => item.id !== itemId))
+  );
+
+  return { success: true };
+}

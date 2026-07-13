@@ -74,6 +74,9 @@ export default function DashboardPage() {
   // 刪除相關狀態
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDeleteItemDialogOpen, setIsDeleteItemDialogOpen] = useState(false);
+  const [deletingItem, setDeletingItem] = useState<DisplayItem | null>(null);
+  const [deletingItemSubmitting, setDeletingItemSubmitting] = useState(false);
 
   // 報表匯出相關狀態
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
@@ -245,6 +248,26 @@ export default function DashboardPage() {
       }
     } catch (err: any) {
       toast.error('刪除出錯');
+    }
+  };
+
+  const handleDeleteItemConfirm = async () => {
+    if (!deletingItem) return;
+    setDeletingItemSubmitting(true);
+    try {
+      const res = await transactionsApi.deleteItem(deletingItem.id);
+      if (res.success) {
+        toast.success('單筆物料明細已刪除');
+        setIsDeleteItemDialogOpen(false);
+        setDeletingItem(null);
+        fetchData();
+      } else {
+        toast.error('刪除失敗：' + res.error);
+      }
+    } catch {
+      toast.error('刪除出錯');
+    } finally {
+      setDeletingItemSubmitting(false);
     }
   };
 
@@ -599,7 +622,7 @@ export default function DashboardPage() {
                     <TableHead className="text-slate-600 font-semibold whitespace-nowrap">掛帳同仁</TableHead>
                     <TableHead className="text-slate-600 font-semibold whitespace-nowrap">掛帳單位</TableHead>
                     <TableHead className="text-slate-600 font-semibold whitespace-nowrap">勾稽狀態</TableHead>
-                    <TableHead className="text-slate-600 font-semibold text-center sticky right-0 z-10 bg-slate-50 w-[110px] min-w-[110px]">操作</TableHead>
+                    <TableHead className="text-slate-600 font-semibold text-center sticky right-0 z-10 bg-slate-50 w-[150px] min-w-[150px]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -657,7 +680,7 @@ export default function DashboardPage() {
                         )}
                       </TableCell>
                       <TableCell>{getStatusBadge(item.reconciliation_status)}</TableCell>
-                      <TableCell className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 w-[110px]">
+                      <TableCell className="sticky right-0 z-10 bg-white group-hover:bg-slate-50 w-[150px]">
                         <div className="flex items-center justify-center gap-1">
                           <Link href={`/lifecycle?type=tx_no&val=${encodeURIComponent(item.tx.tx_no)}`}>
                             <Button variant="ghost" size="icon" title="查看申請單詳細資料" className="h-8 w-8 text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded-md">
@@ -678,14 +701,26 @@ export default function DashboardPage() {
                               <Button 
                                 variant="ghost" 
                                 size="icon" 
-                                title="刪除單據"
+                                title="刪除單筆明細"
                                 onClick={() => {
-                                  setDeletingId(item.tx.id);
-                                  setIsDeleteDialogOpen(true);
+                                  setDeletingItem(item);
+                                  setIsDeleteItemDialogOpen(true);
                                 }}
                                 className="h-8 w-8 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-md"
                               >
                                 <Trash2 size={14} />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                title="刪除整張單據"
+                                onClick={() => {
+                                  setDeletingId(item.tx.id);
+                                  setIsDeleteDialogOpen(true);
+                                }}
+                                className="h-8 w-8 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-md"
+                              >
+                                <AlertTriangle size={14} />
                               </Button>
                             </>
                           )}
@@ -802,6 +837,48 @@ export default function DashboardPage() {
         </DialogContent>
       </Dialog>
 
+      {/* 刪除單筆明細確認對話框 */}
+      <Dialog
+        open={isDeleteItemDialogOpen}
+        onOpenChange={(open, { reason }) => {
+          if (reason === 'outside-press' || reason === 'escape-key') return;
+          setIsDeleteItemDialogOpen(open);
+        }}
+      >
+        <DialogContent className="bg-white border-slate-200 text-slate-800 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-600">
+              <Trash2 size={18} />
+              確認刪除單筆明細？
+            </DialogTitle>
+            <DialogDescription className="text-slate-500 space-y-2">
+              <span className="block">此操作只會刪除目前這一筆物料明細，不會刪除整張申請單。</span>
+              <span className="block font-mono text-slate-700">
+                {deletingItem?.tx.tx_no} / {deletingItem?.part_no} / 數量 {deletingItem?.quantity}
+              </span>
+              <span className="block">若此明細已有掛帳資料連結，系統會阻擋刪除。</span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 mt-4 border-t border-slate-200 pt-3">
+            <Button
+              variant="ghost"
+              onClick={() => setIsDeleteItemDialogOpen(false)}
+              className="text-slate-600 hover:bg-slate-100"
+              disabled={deletingItemSubmitting}
+            >
+              取消返回
+            </Button>
+            <Button
+              onClick={handleDeleteItemConfirm}
+              disabled={deletingItemSubmitting}
+              className="bg-rose-500 text-white font-bold hover:bg-rose-600"
+            >
+              {deletingItemSubmitting ? '刪除中...' : '確定刪除此筆'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* 刪除確認對話框 */}
       <Dialog 
         open={isDeleteDialogOpen} 
@@ -814,7 +891,7 @@ export default function DashboardPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-rose-600">
               <AlertTriangle size={18} />
-              確認刪除單據？
+              確認刪除整張單據？
             </DialogTitle>
             <DialogDescription className="text-slate-500">
               刪除單據將會同步移除所有相關的物料明細，且原本綁定的 PID 將會回復到上一筆掛帳狀態或未掛帳狀態。此操作無法復原。
