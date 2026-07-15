@@ -879,7 +879,7 @@ export function createTransaction(
 }
 
 // 會建立掛帳 PID 或 N/A 帳值的異動別清單。
-// 領料僅能在「料號 + 異動庫別」已有符合掛帳資料時除帳；沒有掛帳時只保留出入庫紀錄。
+// 領料僅能在「料號 + 掛帳單位」已有符合掛帳資料時除帳；沒有掛帳時只保留出入庫紀錄。
 export const PID_REQUIRED_TX_TYPES: TxType[] = ['轉撥', '內部轉調', '轉撥退回'];
 
 export type LedgerAction = 'CREATE_LOAN_LEDGER' | 'CLEAR_LOAN_LEDGER' | 'NORMAL_RECORD_ONLY';
@@ -893,8 +893,7 @@ const getLinkedItem = (asset: AssetPid, txItems: TransactionItem[]) =>
 const normalizeLedgerKey = (value: string | null | undefined) =>
   (value || '').replace(/\s+/g, '').toUpperCase();
 
-const isSameLedgerWarehouse = (asset: AssetPid, warehouseId: string) =>
-  normalizeLedgerKey(asset.current_warehouse) === normalizeLedgerKey(warehouseId) ||
+const isSameLedgerDept = (asset: AssetPid, warehouseId: string) =>
   normalizeLedgerKey(asset.current_dept) === normalizeLedgerKey(warehouseId);
 
 const isSamePartNo = (left: string | null | undefined, right: string | null | undefined) =>
@@ -910,7 +909,7 @@ export function hasOpenLedgerForItem(
     return (
       isOpenLedgerAsset(asset) &&
       isSamePartNo(linkedItem?.part_no, item.part_no) &&
-      isSameLedgerWarehouse(asset, item.warehouse_id)
+      isSameLedgerDept(asset, item.warehouse_id)
     );
   });
 }
@@ -1035,8 +1034,8 @@ export function repairTransactionItem(
       if (!isSamePart(target)) {
         return { success: false, error: `PID "${pidVal}" 的料號與本次申請料號不一致，無法除帳` };
       }
-      if (!isSameLedgerWarehouse(target, item.warehouse_id)) {
-        return { success: false, error: `PID "${pidVal}" 的掛帳庫別與本次異動庫別不一致，無法除帳` };
+      if (!isSameLedgerDept(target, item.warehouse_id)) {
+        return { success: false, error: `PID "${pidVal}" 的掛帳單位與本次異動庫別不一致，無法除帳` };
       }
 
       updatedPids[targetIdx] = {
@@ -1058,7 +1057,7 @@ export function repairTransactionItem(
           asset.pid === 'N/A' &&
           isOpenLedger(asset) &&
           isSamePart(asset) &&
-          isSameLedgerWarehouse(asset, item.warehouse_id) &&
+          isSameLedgerDept(asset, item.warehouse_id) &&
           isSameOwner(asset)
         )
         .map(({ idx }) => idx);

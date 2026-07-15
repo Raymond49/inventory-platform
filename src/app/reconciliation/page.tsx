@@ -72,8 +72,7 @@ export default function ReconciliationPage() {
   const getLinkedItem = (asset: AssetPid) =>
     allItems.find(i => String(i.id) === String(asset.current_item_id));
 
-  const isSameLedgerWarehouse = (asset: AssetPid, warehouseId: string) =>
-    normalizeLedgerKey(asset.current_warehouse) === normalizeLedgerKey(warehouseId) ||
+  const isSameLedgerDept = (asset: AssetPid, warehouseId: string) =>
     normalizeLedgerKey(asset.current_dept) === normalizeLedgerKey(warehouseId);
 
   const isSameLedgerOwner = (asset: AssetPid, owner: string | null | undefined) =>
@@ -86,7 +85,7 @@ export default function ReconciliationPage() {
       return (
         isOpenLedgerAsset(asset) &&
         normalizeLedgerKey(linkedItem?.part_no) === normalizeLedgerKey(item.part_no) &&
-        isSameLedgerWarehouse(asset, item.warehouse_id) &&
+        isSameLedgerDept(asset, item.warehouse_id) &&
         (!isNaLedger || isSameLedgerOwner(asset, item.tx.custom_owner))
       );
     });

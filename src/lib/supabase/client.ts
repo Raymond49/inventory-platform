@@ -332,8 +332,7 @@ export const transactionsApi = {
         asset.current_status !== '結案/在庫' && Boolean(asset.current_item_id);
       const isSamePart = (asset: mockDb.AssetPid) =>
         normalizeLedgerKey(findLinkedItem(asset)?.part_no) === normalizeLedgerKey(item.part_no);
-      const isSameLedgerWarehouse = (asset: mockDb.AssetPid) =>
-        normalizeLedgerKey(asset.current_warehouse) === normalizeLedgerKey(item.warehouse_id) ||
+      const isSameLedgerDept = (asset: mockDb.AssetPid) =>
         normalizeLedgerKey(asset.current_dept) === normalizeLedgerKey(item.warehouse_id);
       const isSameLedgerOwner = (asset: mockDb.AssetPid) =>
         normalizeLedgerKey(asset.custom_owner) === normalizeLedgerKey(tx.custom_owner);
@@ -356,7 +355,7 @@ export const transactionsApi = {
         if (!target) return { success: false, error: `PID "${pidVal}" 尚未在平台列管，無法除帳` };
         if (!isOpenLedger(target)) return { success: false, error: `PID "${pidVal}" 目前不是掛帳中狀態，無法除帳` };
         if (!isSamePart(target)) return { success: false, error: `PID "${pidVal}" 的料號與本次申請料號不一致，無法除帳` };
-        if (!isSameLedgerWarehouse(target)) return { success: false, error: `PID "${pidVal}" 的掛帳庫別與本次異動庫別不一致，無法除帳` };
+        if (!isSameLedgerDept(target)) return { success: false, error: `PID "${pidVal}" 的掛帳單位與本次異動庫別不一致，無法除帳` };
 
         const logs = Array.isArray(target.history_logs) ? [...target.history_logs, clearLogEntry] : [clearLogEntry];
         pidClearPayloads.push({
@@ -382,7 +381,7 @@ export const transactionsApi = {
           asset.pid === 'N/A' &&
           isOpenLedger(asset) &&
           isSamePart(asset) &&
-          isSameLedgerWarehouse(asset) &&
+          isSameLedgerDept(asset) &&
           isSameLedgerOwner(asset)
         );
 
